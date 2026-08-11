@@ -1,109 +1,152 @@
-import streamlit as st
+import os
+import time
+from datetime import datetime
+from typing import Any, Mapping
+
 import requests
-import time  # Importando a biblioteca para adicionar delays
+import streamlit as st
 
-# Função para fazer a requisição de status
-def get_status(kickoff_id, url, headers):
+REQUEST_TIMEOUT_SECONDS = 30
+POLL_RETRIES = 30
+POLL_DELAY_SECONDS = 5
+
+
+class ConfigurationError(RuntimeError):
+    """Raised when the local API configuration is incomplete."""
+
+
+def read_configuration(environ: Mapping[str, str] | None = None) -> tuple[str, str]:
+    values = os.environ if environ is None else environ
+    base_url = values.get("CREWAI_KICKOFF_URL", "").strip().rstrip("/")
+    token = values.get("CREWAI_BEARER_TOKEN", "").strip()
+
+    if not base_url or not token:
+        raise ConfigurationError(
+            "Defina CREWAI_KICKOFF_URL e CREWAI_BEARER_TOKEN no ambiente local."
+        )
+
+    return base_url, token
+
+
+def endpoint(base_url: str, path: str) -> str:
+    return f"{base_url.rstrip('/')}/{path.lstrip('/')}"
+
+
+def request_json(
+    method: str,
+    request_url: str,
+    headers: dict[str, str],
+    body: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
     try:
-        response = requests.get(f"{url}/status/{kickoff_id}", headers=headers)
-        if response.status_code == 200:
-            return response.json()
-        else:
-            st.error(f"Erro ao obter status. Código de status: {response.status_code}")
-            return None
-    except Exception as e:
-        st.error(f"Erro na requisição: {str(e)}")
+        response = requests.request(
+            method,
+            request_url,
+            headers=headers,
+            json=body,
+            timeout=REQUEST_TIMEOUT_SECONDS,
+        )
+        response.raise_for_status()
+        return response.json()
+    except requests.RequestException as exc:
+        status = exc.response.status_code if exc.response is not None else None
+        message = f"Falha na API (HTTP {status})." if status else "Falha de comunicação com a API."
+        st.error(message)
+        return None
+    except ValueError:
+        st.error("A API retornou uma resposta que não é JSON válido.")
         return None
 
-# Função para fazer a requisição de kickoff
-def post_kickoff(url, headers, body):
-    try:
-        response = requests.post(f"{url}/kickoff", 
-                                 headers=headers, json=body)
-        if response.status_code == 200:
-            return response.json()
-        else:
-            st.error(f"Erro ao enviar kickoff. Código de status: {response.status_code}")
+
+def get_inputs(base_url: str, headers: dict[str, str]) -> dict[str, Any] | None:
+    return request_json("GET", endpoint(base_url, "inputs"), headers)
+
+
+def post_kickoff(
+    base_url: str,
+    headers: dict[str, str],
+    body: dict[str, Any],
+) -> dict[str, Any] | None:
+    return request_json("POST", endpoint(base_url, "kickoff"), headers, body)
+
+
+def get_status(
+    kickoff_id: str,
+    base_url: str,
+    headers: dict[str, str],
+) -> dict[str, Any] | None:
+    return request_json("GET", endpoint(base_url, f"status/{kickoff_id}"), headers)
+
+
+def wait_for_success(
+    kickoff_id: str,
+    base_url: str,
+    headers: dict[str, str],
+    max_retries: int = POLL_RETRIES,
+    delay: int = POLL_DELAY_SECONDS,
+) -> dict[str, Any] | None:
+    for _ in range(max_retries):
+        status_response = get_status(kickoff_id, base_url, headers)
+        if not status_response:
             return None
-    except Exception as e:
-        st.error(f"Erro na requisição: {str(e)}")
-        return None
 
-# Função para fazer a requisição de inputs
-def get_inputs(url, headers):
-    try:
-        response = requests.get(f"{url}/inputs", headers=headers)
-        if response.status_code == 200:
-            return response.json()
-        else:
-            st.error(f"Erro ao obter inputs. Código de status: {response.status_code}")
+        state = status_response.get("state")
+        if state == "SUCCESS":
+            return status_response
+        if state == "FAILED":
+            st.error("A execução remota terminou com falha.")
             return None
-    except Exception as e:
-        st.error(f"Erro na requisição: {str(e)}")
-        return None
 
-# Função para verificar periodicamente o status até que a tarefa seja concluída
-def wait_for_success(kickoff_id, url, headers, max_retries=30, delay=5):
-    retries = 0
-    while retries < max_retries:
-        status_response = get_status(kickoff_id, url, headers)
-        if status_response:
-            state = status_response.get("state")
-            if state == "SUCCESS":
-                return status_response
-            elif state == "FAILED":
-                st.error("A tarefa falhou.")
-                return None
-            else:
-                st.write(f"Tarefa ainda em andamento. Estado atual: {state}. Tentando novamente...")
-        retries += 1
-        time.sleep(delay)  # Espera de 5 segundos antes de tentar novamente
+        st.info("Execução remota ainda em andamento.")
+        time.sleep(delay)
 
-    st.error("Tempo limite excedido para obter sucesso.")
+    st.error("Tempo limite excedido ao aguardar a execução remota.")
     return None
 
-# Configuração da URL e token
-url = "https://novo-teste-fff0e815-98f9-4e7f-a181-cf179414-10bb7562.crewai.com"
-token = "eb5f8f7d7b42"
-headers = {
-    "Authorization": f"Bearer {token}",
-    "Content-Type": "application/json"
-}
 
-# Interface do usuário no Streamlit
-st.title("Aplicação de Integração com CrewAI")
+def main() -> None:
+    st.title("Cliente Streamlit para kickoff CrewAI")
 
-# Exibir os inputs disponíveis
-st.subheader("Inputs Disponíveis")
-inputs_data = get_inputs(url, headers)
-if inputs_data:
-    st.json(inputs_data)
-else:
-    st.error("Não foi possível carregar os inputs.")
+    try:
+        base_url, token = read_configuration()
+    except ConfigurationError as exc:
+        st.warning(str(exc))
+        return
 
-# Campo de texto para o tópico e ano
-topic = st.text_input("Informe o tópico", value="CrewAI")
-current_year = st.number_input("Informe o ano atual", value=2025)
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+    }
 
-# Botão para iniciar o kickoff
-if st.button("Iniciar Kickoff"):
-    body = {"inputs": {"topic": topic, "current_year": current_year}}
-    kickoff_response = post_kickoff(url, headers, body)
-    
-    if kickoff_response:
-        st.json(kickoff_response)
-        kickoff_id = kickoff_response.get("kickoff_id", "")
-        
-        # Verificar o status até atingir "SUCCESS"
-        if kickoff_id:
-            st.subheader("Verificando Status do Kickoff")
-            status_response = wait_for_success(kickoff_id, url, headers)
-            
-            if status_response:
-                result = status_response.get("result",
-                                             "Nenhum resultado disponível.")
-                st.write(f"Resultado final: {result}")
-            else:
-                st.error("Não foi possível obter sucesso após múltiplas tentativas.")
+    st.subheader("Inputs disponíveis")
+    inputs_data = get_inputs(base_url, headers)
+    if inputs_data:
+        st.json(inputs_data)
     else:
-        st.error("Falha ao iniciar o kickoff.")
+        st.info("Os inputs remotos não puderam ser carregados.")
+
+    topic = st.text_input("Tópico", value="AI LLMs")
+    current_year = st.number_input("Ano", value=datetime.now().year)
+
+    if not st.button("Iniciar kickoff"):
+        return
+
+    body = {"inputs": {"topic": topic, "current_year": int(current_year)}}
+    kickoff_response = post_kickoff(base_url, headers, body)
+    if not kickoff_response:
+        return
+
+    kickoff_id = kickoff_response.get("kickoff_id")
+    if not kickoff_id:
+        st.error("A resposta não contém um identificador de kickoff.")
+        return
+
+    st.success("Kickoff iniciado.")
+    status_response = wait_for_success(kickoff_id, base_url, headers)
+    if status_response:
+        st.subheader("Resultado")
+        st.write(status_response.get("result", "Resultado indisponível."))
+
+
+if __name__ == "__main__":
+    main()

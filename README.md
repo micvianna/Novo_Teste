@@ -1,54 +1,70 @@
-# NovoTeste Crew
+# Novo Teste — laboratório CrewAI
 
-Welcome to the NovoTeste Crew project, powered by [crewAI](https://crewai.com). This template is designed to help you set up a multi-agent AI system with ease, leveraging the powerful and flexible framework provided by crewAI. Our goal is to enable your agents to collaborate effectively on complex tasks, maximizing their collective intelligence and capabilities.
+Repositório de estudo que reúne:
 
-## Installation
+- um scaffold CrewAI configurado em `src/novo_teste/`;
+- um cliente Streamlit em `app.py` para iniciar e acompanhar uma execução remota via HTTP.
 
-Ensure you have Python >=3.10 <3.14 installed on your system. This project uses [UV](https://docs.astral.sh/uv/) for dependency management and package handling, offering a seamless setup and execution experience.
+Este projeto é um laboratório, não uma aplicação finalizada ou um serviço de produção.
 
-First, if you haven't already, install uv:
+## Segurança
 
-```bash
-pip install uv
+O cliente Streamlit exige duas variáveis locais:
+
+```env
+CREWAI_KICKOFF_URL=
+CREWAI_BEARER_TOKEN=
 ```
 
-Next, navigate to your project directory and install the dependencies:
-
-(Optional) Lock the dependencies and install them by using the CLI command:
-```bash
-crewai install
-```
-### Customizing
-
-**Add your `OPENAI_API_KEY` into the `.env` file**
-
-- Modify `src/novo_teste/config/agents.yaml` to define your agents
-- Modify `src/novo_teste/config/tasks.yaml` to define your tasks
-- Modify `src/novo_teste/crew.py` to add your own logic, tools and specific args
-- Modify `src/novo_teste/main.py` to add custom inputs for your agents and tasks
-
-## Running the Project
-
-To kickstart your crew of AI agents and begin task execution, run this from the root folder of your project:
+Copie o exemplo e preencha somente no ambiente autorizado:
 
 ```bash
-$ crewai run
+cp .env.example .env
 ```
 
-This command initializes the novo_teste Crew, assembling the agents and assigning them tasks as defined in your configuration.
+O código não possui valores padrão e encerra a execução antes de qualquer requisição quando a configuração está ausente.
 
-This example, unmodified, will run the create a `report.md` file with the output of a research on LLMs in the root folder.
+Um token concreto esteve anteriormente versionado. O valor é tratado como `[REDACTED]` e deve ser revogado ou rotacionado manualmente. A remoção do branch atual não elimina o valor do histórico Git; esse histórico não foi reescrito porque não há autorização para force push neste repositório.
 
-## Understanding Your Crew
+## Instalação
 
-The novo_teste Crew is composed of multiple AI agents, each with unique roles, goals, and tools. These agents collaborate on a series of tasks, defined in `config/tasks.yaml`, leveraging their collective skills to achieve complex objectives. The `config/agents.yaml` file outlines the capabilities and configurations of each agent in your crew.
+Requer Python 3.10 até 3.13 e `uv`:
 
-## Support
+```bash
+uv sync
+```
 
-For support, questions, or feedback regarding the NovoTeste Crew or crewAI.
-- Visit our [documentation](https://docs.crewai.com)
-- Reach out to us through our [GitHub repository](https://github.com/joaomdmoura/crewai)
-- [Join our Discord](https://discord.com/invite/X4JWnZnxPb)
-- [Chat with our docs](https://chatg.pt/DWjSBZn)
+## Executar o scaffold CrewAI
 
-Let's create wonders together with the power and simplicity of crewAI.
+```bash
+uv run crewai run
+```
+
+Essa execução depende dos providers e credenciais configurados pelo scaffold e pode gerar custo externo.
+
+## Executar o cliente Streamlit
+
+Exporte as variáveis do arquivo local de forma compatível com seu shell e execute:
+
+```bash
+uv run streamlit run app.py
+```
+
+O cliente consulta os inputs disponíveis, inicia um kickoff e acompanha seu estado até sucesso, falha ou timeout. Mensagens de erro não exibem corpo de resposta, token ou URL configurada.
+
+## Testes locais
+
+Os testes não fazem chamadas de rede:
+
+```bash
+uv run python -m unittest discover -s tests
+```
+
+Eles verificam que a configuração vem do ambiente e que nenhuma requisição é feita quando as variáveis obrigatórias estão ausentes.
+
+## Maturidade
+
+- Sem CI.
+- O scaffold CrewAI ainda contém conteúdo de exemplo.
+- O cliente depende de uma API externa não incluída no repositório.
+- Nenhum resultado de execução remota é declarado como validado.
